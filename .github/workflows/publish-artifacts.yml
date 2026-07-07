@@ -1,0 +1,87 @@
+name: Publish artifacts
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        config:
+          - name: linux@amd64
+            os: ubuntu-latest
+            platform: linux
+            arch: amd64
+            bazelisk: bazelisk-linux-amd64
+          - name: linux@arm64
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            bazelisk: bazelisk-linux-arm64
+          - name: macos@amd64
+            os: macos-15-intel
+            platform: darwin
+            arch: amd64
+            bazelisk: bazelisk-darwin-amd64
+          - name: macos@arm64
+            os: macos-15
+            platform: darwin
+            arch: arm64
+            bazelisk: bazelisk-darwin-arm64
+
+    runs-on: ${{ matrix.config.os }}
+    name: ${{ matrix.config.name }}
+    steps:
+      - name: Checkout grpc
+        uses: actions/checkout@v7
+        with:
+          repository: grpc/grpc
+          ref: ${{ github.ref_name }}
+
+      - name: Install Bazelisk
+        run: |
+          wget "https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/${{ matrix.config.bazelisk }}"
+          chmod a+x "${{ matrix.config.bazelisk }}"
+          sudo mv "${{ matrix.config.bazelisk }}" /usr/local/bin/bazel
+
+      - name: Build grpc_php_plugin
+        run: bazel build src/compiler:grpc_php_plugin
+
+      - name: Archive artifact
+        env:
+          VERSION: ${{ github.ref_name }}
+          PLATFORM: ${{ matrix.config.platform }}
+          ARCH: ${{ matrix.config.arch }}
+        run: |
+          cd bazel-bin/src/compiler/
+          cp grpc_php_plugin grpc-php-plugin
+          tar czf "grpc-php-plugin.${VERSION}.${PLATFORM}.${ARCH}.tar.gz" grpc-php-plugin
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: grpc-php-plugin-${{ matrix.config.platform }}-${{ matrix.config.arch }}
+          path: bazel-bin/src/compiler/grpc-php-plugin.${{ github.ref_name }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: artifacts/*.tar.gz
