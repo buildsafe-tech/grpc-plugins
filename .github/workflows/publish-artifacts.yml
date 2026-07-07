@@ -1,9 +1,6 @@
 name: Publish artifacts
 
 on:
-  push:
-    tags:
-      - '*'
   workflow_dispatch:
     inputs:
       tag:
@@ -13,6 +10,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
   build:
@@ -41,8 +41,6 @@ jobs:
 
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.name }}
-    env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Checkout grpc
         uses: actions/checkout@v7
@@ -87,5 +85,7 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Release ${{ env.RELEASE_TAG }}
+          body: https://github.com/grpc/grpc/releases/tag/${{ env.RELEASE_TAG }}
           files: artifacts/*.tar.gz
