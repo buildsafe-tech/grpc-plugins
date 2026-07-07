@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: grpc/grpc tag to build and release (e.g. v1.60.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,47 +21,45 @@ jobs:
       matrix:
         config:
           - name: linux@amd64
-            os: ubuntu-latest
+            os: ubuntu-24.04
             platform: linux
             arch: amd64
-            bazelisk: bazelisk-linux-amd64
           - name: linux@arm64
             os: ubuntu-24.04-arm
             platform: linux
             arch: arm64
-            bazelisk: bazelisk-linux-arm64
           - name: macos@amd64
             os: macos-15-intel
             platform: darwin
             arch: amd64
-            bazelisk: bazelisk-darwin-amd64
+            xcode: 16.2
           - name: macos@arm64
             os: macos-15
             platform: darwin
             arch: arm64
-            bazelisk: bazelisk-darwin-arm64
+            xcode: 16.2
 
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.name }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Checkout grpc
         uses: actions/checkout@v7
         with:
           repository: grpc/grpc
-          ref: ${{ github.ref_name }}
+          ref: ${{ env.RELEASE_TAG }}
 
-      - name: Install Bazelisk
-        run: |
-          wget "https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/${{ matrix.config.bazelisk }}"
-          chmod a+x "${{ matrix.config.bazelisk }}"
-          sudo mv "${{ matrix.config.bazelisk }}" /usr/local/bin/bazel
+      - name: Select Xcode
+        if: matrix.config.xcode != ''
+        run: sudo xcode-select -s "/Applications/Xcode_${{ matrix.config.xcode }}.app"
 
       - name: Build grpc_php_plugin
         run: bazel build src/compiler:grpc_php_plugin
 
       - name: Archive artifact
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_TAG }}
           PLATFORM: ${{ matrix.config.platform }}
           ARCH: ${{ matrix.config.arch }}
         run: |
@@ -67,7 +71,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: grpc-php-plugin-${{ matrix.config.platform }}-${{ matrix.config.arch }}
-          path: bazel-bin/src/compiler/grpc-php-plugin.${{ github.ref_name }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz
+          path: bazel-bin/src/compiler/grpc-php-plugin.${{ env.RELEASE_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz
           if-no-files-found: error
 
   release:
@@ -83,5 +87,5 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: artifacts/*.tar.gz
