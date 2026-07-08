@@ -76,6 +76,6 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: Release ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
           body: https://github.com/grpc/grpc-swift/releases/tag/${{ env.UPSTREAM_TAG }}
           files: artifacts/*.tar.gz
