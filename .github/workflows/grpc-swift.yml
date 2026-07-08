@@ -1,0 +1,81 @@
+name: Publish grpc-swift artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: grpc/grpc-swift tag to build and release (e.g. 1.23.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_TAG: ${{ inputs.tag }}
+  RELEASE_TAG: grpc-swift-${{ inputs.tag }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        config:
+          - name: linux@amd64
+            os: ubuntu-24.04
+            platform: linux
+            arch: amd64
+          - name: linux@arm64
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - name: macos@amd64
+            os: macos-15-intel
+            platform: darwin
+            arch: amd64
+          - name: macos@arm64
+            os: macos-15
+            platform: darwin
+            arch: arm64
+
+    runs-on: ${{ matrix.config.os }}
+    name: ${{ matrix.config.name }}
+    steps:
+      - name: Checkout grpc-swift
+        uses: actions/checkout@v7
+        with:
+          repository: grpc/grpc-swift
+          ref: ${{ env.UPSTREAM_TAG }}
+
+      - name: Build protoc-gen-grpc-swift
+        run: swift build -c release --product protoc-gen-grpc-swift
+
+      - name: Archive artifact
+        run: |
+          cd .build/release/
+          tar czf "protoc-gen-grpc-swift.${{ env.UPSTREAM_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz" protoc-gen-grpc-swift
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: protoc-gen-grpc-swift-${{ matrix.config.platform }}-${{ matrix.config.arch }}
+          path: .build/release/protoc-gen-grpc-swift.${{ env.UPSTREAM_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Release ${{ env.RELEASE_TAG }}
+          body: https://github.com/grpc/grpc-swift/releases/tag/${{ env.UPSTREAM_TAG }}
+          files: artifacts/*.tar.gz

@@ -1,10 +1,10 @@
-name: Publish artifacts
+name: Publish swift-protobuf artifacts
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: grpc/grpc tag to build and release (e.g. v1.60.0)
+        description: apple/swift-protobuf tag to build and release (e.g. 1.25.2)
         required: true
         type: string
 
@@ -12,7 +12,8 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: ${{ inputs.tag }}
+  UPSTREAM_TAG: ${{ inputs.tag }}
+  RELEASE_TAG: swift-protobuf-${{ inputs.tag }}
 
 jobs:
   build:
@@ -32,44 +33,33 @@ jobs:
             os: macos-15-intel
             platform: darwin
             arch: amd64
-            xcode: 16.2
           - name: macos@arm64
             os: macos-15
             platform: darwin
             arch: arm64
-            xcode: 16.2
 
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.name }}
     steps:
-      - name: Checkout grpc
+      - name: Checkout swift-protobuf
         uses: actions/checkout@v7
         with:
-          repository: grpc/grpc
-          ref: ${{ env.RELEASE_TAG }}
+          repository: apple/swift-protobuf
+          ref: ${{ env.UPSTREAM_TAG }}
 
-      - name: Select Xcode
-        if: matrix.config.xcode != ''
-        run: sudo xcode-select -s "/Applications/Xcode_${{ matrix.config.xcode }}.app"
-
-      - name: Build grpc_php_plugin
-        run: bazel build src/compiler:grpc_php_plugin
+      - name: Build protoc-gen-swift
+        run: swift build -c release --product protoc-gen-swift
 
       - name: Archive artifact
-        env:
-          VERSION: ${{ env.RELEASE_TAG }}
-          PLATFORM: ${{ matrix.config.platform }}
-          ARCH: ${{ matrix.config.arch }}
         run: |
-          cd bazel-bin/src/compiler/
-          cp grpc_php_plugin grpc-php-plugin
-          tar czf "grpc-php-plugin.${VERSION}.${PLATFORM}.${ARCH}.tar.gz" grpc-php-plugin
+          cd .build/release/
+          tar czf "protoc-gen-swift.${{ env.UPSTREAM_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz" protoc-gen-swift
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: grpc-php-plugin-${{ matrix.config.platform }}-${{ matrix.config.arch }}
-          path: bazel-bin/src/compiler/grpc-php-plugin.${{ env.RELEASE_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz
+          name: protoc-gen-swift-${{ matrix.config.platform }}-${{ matrix.config.arch }}
+          path: .build/release/protoc-gen-swift.${{ env.UPSTREAM_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz
           if-no-files-found: error
 
   release:
@@ -86,6 +76,6 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: Release ${{ env.RELEASE_TAG }}
-          body: https://github.com/grpc/grpc/releases/tag/${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          body: https://github.com/apple/swift-protobuf/releases/tag/${{ env.UPSTREAM_TAG }}
           files: artifacts/*.tar.gz

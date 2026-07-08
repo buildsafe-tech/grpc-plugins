@@ -1,0 +1,88 @@
+name: Publish grpc artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: grpc/grpc tag to build and release (e.g. v1.60.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_TAG: ${{ inputs.tag }}
+  RELEASE_TAG: grpc-${{ inputs.tag }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        config:
+          - name: linux@amd64
+            os: ubuntu-24.04
+            platform: linux
+            arch: amd64
+          - name: linux@arm64
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - name: macos@amd64
+            os: macos-15-intel
+            platform: darwin
+            arch: amd64
+            xcode: 16.2
+          - name: macos@arm64
+            os: macos-15
+            platform: darwin
+            arch: arm64
+            xcode: 16.2
+
+    runs-on: ${{ matrix.config.os }}
+    name: ${{ matrix.config.name }}
+    steps:
+      - name: Checkout grpc
+        uses: actions/checkout@v7
+        with:
+          repository: grpc/grpc
+          ref: ${{ env.UPSTREAM_TAG }}
+
+      - name: Select Xcode
+        if: matrix.config.xcode != ''
+        run: sudo xcode-select -s "/Applications/Xcode_${{ matrix.config.xcode }}.app"
+
+      - name: Build grpc_php_plugin
+        run: bazel build src/compiler:grpc_php_plugin
+
+      - name: Archive artifact
+        run: |
+          cd bazel-bin/src/compiler/
+          cp grpc_php_plugin grpc-php-plugin
+          tar czf "grpc-php-plugin.${{ env.UPSTREAM_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz" grpc-php-plugin
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: grpc-php-plugin-${{ matrix.config.platform }}-${{ matrix.config.arch }}
+          path: bazel-bin/src/compiler/grpc-php-plugin.${{ env.UPSTREAM_TAG }}.${{ matrix.config.platform }}.${{ matrix.config.arch }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          body: https://github.com/grpc/grpc/releases/tag/${{ env.RELEASE_TAG }}
+          files: artifacts/*.tar.gz
